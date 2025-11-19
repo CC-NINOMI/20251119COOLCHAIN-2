@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>真空預冷機：乾式螺旋泵與冷凝循環演示</title>
+    <style>
+        :root {
+            --primary: #0984e3;
+            --secondary: #636e72;
+            --accent: #00b894;
+            --bg: #f1f2f6;
+            --panel: #ffffff;
+        }
+        body { font-family: "Segoe UI", "Microsoft JhengHei", sans-serif; background: var(--bg); margin: 0; padding: 20px; color: #2d3436; }
+        .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 2.5fr 1fr; gap: 20px; }
+        
+        /* Header */
+        header { grid-column: 1 / -1; text-align: center; margin-bottom: 10px; }
+        h1 { margin: 0; color: #2d3436; }
+        p.subtitle { color: #636e72; margin-top: 5px; }
+
+        /* Visual Panel */
+        .card { background: var(--panel); padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .canvas-wrapper { position: relative; background: #1e272e; border-radius: 8px; overflow: hidden; cursor: crosshair; }
+        canvas { display: block; width: 100%; height: 500px; }
+        
+        /* Dashboard Overlay */
+        .dashboard {
+            position: absolute; top: 15px; left: 15px;
+            display: flex; gap: 15px;
+        }
+        .meter {
+            background: rgba(0,0,0,0.6); color: #00d2ff; padding: 8px 15px; border-radius: 4px;
+            border: 1px solid #00d2ff; font-family: monospace; font-size: 1.1em;
+        }
+        .meter label { display: block; font-size: 0.7em; color: #aaa; margin-bottom: 2px; }
+
+        /* Controls & Legend */
+        .controls { margin-top: 15px; display: flex; gap: 20px; align-items: center; justify-content: center; flex-wrap: wrap; }
+        .btn {
+            padding: 10px 25px; border: none; border-radius: 6px; cursor: pointer; font-size: 1em; font-weight: bold; transition: 0.2s;
+        }
+        .btn-start { background: var(--accent); color: white; }
+        .btn-start:hover { background: #00a383; }
+        .btn-reset { background: var(--secondary); color: white; }
+        .btn-reset:hover { background: #555; }
+        
+        .legend { display: flex; gap: 15px; font-size: 0.9em; align-items: center; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+
+        /* Sidebar */
+        .sidebar { display: flex; flex-direction: column; gap: 20px; }
+        .info-box h3 { margin-top: 0; border-bottom: 2px solid #f1f2f6; padding-bottom: 8px; font-size: 1.2em; }
+        .info-text { font-size: 0.95em; line-height: 1.6; color: #555; }
+        .highlight { color: #d63031; font-weight: bold; }
+        
+        /* Calculator */
+        .input-group { margin-bottom: 12px; }
+        .input-group label { display: block; font-size: 0.9em; font-weight: bold; margin-bottom: 4px; }
+        .input-group input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        .result { background: #dfe6e9; padding: 10px; border-radius: 4px; margin-top: 10px; }
+        .result div { display: flex; justify-content: space-between; margin-bottom: 5px; font-size: 0.9em; }
+
+        /* Tooltip */
+        .tooltip {
+            position: absolute; background: rgba(0,0,0,0.85); color: white; padding: 10px;
+            border-radius: 6px; font-size: 0.9em; pointer-events: none; display: none; z-index: 100; max-width: 250px;
+            line-height: 1.4; border-left: 4px solid var(--primary);
+        }
+
+        @media (max-width: 900px) {
+            .container { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>使用乾式螺旋真空泵的真空預冷機</h1>
+        <p class="subtitle">真實流程模擬：抽氣降壓 &rarr; 水分閃發 &rarr; 凝結捕水 &rarr; 螺旋壓縮排氣</p>
+    </header>
+
+    <!-- Left: Visualization -->
+    <div class="main-panel">
+        <div class="card">
+            <div class="canvas-wrapper">
+                <canvas id="simCanvas"></canvas>
+                <div class="dashboard">
+                    <div class="meter"><label>腔體壓力</label><span id="pressureDisplay">760</span> Torr</div>
+                    <div class="meter"><label>蔬菜溫度</label><span id="tempDisplay">30.0</span> °C</div>
+                </div>
+                <div id="tooltip" class="tooltip"></div>
+            </div>
+            
+            <div class="controls">
+                <button class="btn btn-start" onclick="startSimulation()">啟動預冷行程</button>
+                <button class="btn btn-reset" onclick="resetSimulation()">重置系統</button>
+                <div class="legend">
+                    <span><div class="dot" style="background:white"></div>空氣</span>
+                    <span><div class="dot" style="background:#00d2ff"></div>水汽</span>
+                    <span><div class="dot" style="background:#ff7675"></div>滷水(吸熱)</span>
+                    <span><div class="dot" style="background:#74b9ff"></div>滷水(供冷)</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top: 20px;">
+            <h3>運作原理詳解</h3>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <h4>1. 滷水凝結器 (水汽捕手)</h4>
+                    <p class="info-text">
+                        位於圖中段。由右上的<strong>滷水機組</strong>提供低溫滷水（約 -5°C ~ -10°C）。
+                        當蔬菜水分蒸發流過此處時，會瞬間凝結成水或冰。
+                        <br><span class="highlight">重點：凝結器負責處理 90% 以上的氣體體積（水汽），保護後端泵浦。</span>
+                    </p>
+                </div>
+                <div>
+                    <h4>2. 乾式螺旋真空泵 (系統心臟)</h4>
+                    <p class="info-text">
+                        位於圖右下。氣流順著管路下來進入泵浦。
+                        <br><strong>雙螺桿構造：</strong>右側進氣口螺距大（容積大），往左側排氣口螺距漸小。
+                        <br><span class="highlight">原理：利用空間由大變小，將剩餘空氣物理壓縮，排至大氣。</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right: Tools -->
+    <div class="sidebar">
+        <div class="card info-box">
+            <h3>流程狀態</h3>
+            <div id="statusText" class="info-text">系統待機中...<br>請點擊「啟動預冷行程」。</div>
+        </div>
+
+        <div class="card">
+            <h3>預冷試算工具</h3>
+            <div class="input-group">
+                <label>蔬菜重量 (kg)</label>
+                <input type="number" id="inWeight" value="1000">
+            </div>
+            <div class="input-group">
+                <label>初始溫度 (°C)</label>
+                <input type="number" id="inStartT" value="30">
+            </div>
+            <div class="input-group">
+                <label>目標溫度 (°C)</label>
+                <input type="number" id="inEndT" value="4">
+            </div>
+            <button class="btn btn-start" style="width:100%" onclick="calculate()">計算熱負荷</button>
+            
+            <div class="result">
+                <div><span>移除熱量:</span> <b id="outHeat">0</b> kcal</div>
+                <div><span>蒸發水分:</span> <b id="outWater">0</b> kg</div>
+                <div><span>失重率:</span> <b id="outLoss">0</b> %</div>
+            </div>
+            <p style="font-size:0.8em; color:#888; margin-top:5px;">*假設潛熱 580 kcal/kg, 比熱 0.95</p>
+        </div>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('simCanvas');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+
+// High DPI fix
+function resize() {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width * 2;
+    canvas.height = rect.height * 2;
+    ctx.scale(2, 2);
+    return { w: rect.width, h: rect.height };
+}
+let dims = resize();
+window.addEventListener('resize', () => { dims = resize(); });
+
+// --- System State ---
+let simState = {
+    running: false,
+    pressure: 760, // Torr
+    temp: 30, // Celsius
+    stage: 'IDLE', // IDLE, PUMP_DOWN, FLASH, DONE
+    time: 0
+};
+
+// --- Coordinates ---
+// Layout: Chamber(Left) -> Pipe -> Condenser(Center) -> Pipe -> Pump(Right/Bottom) -> Exhaust
+const pos = {
+    chamber: { x: 50, y: 150, w: 140, h: 200 },
+    condenser: { x: 300, y: 150, w: 120, h: 180 },
+    chiller: { x: 300, y: 20, w: 120, h: 80 },
+    pump: { x: 520, y: 300, w: 220, h: 90 }, // Inlet on Right, Exhaust on Left
+    exhaust: { x: 450, y: 345 }
+};
+
+// --- Particles ---
+let particles = [];
+class Particle {
+    constructor(type) {
+        this.reset(type);
+    }
+
+    reset(type) {
+        this.type = type || 'air'; // 'air', 'vapor', 'brine_cold', 'brine_hot'
+        this.active = true;
+        this.alpha = 1;
+        
+        if (this.type === 'brine_cold') {
+            // Chiller -> Condenser
+            this.path = 0; // 0 to 1
+        } else if (this.type === 'brine_hot') {
+            // Condenser -> Chiller
+            this.path = 0;
+        } else {
+            // Gas particles start in Chamber
+            this.x = pos.chamber.x + 20 + Math.random() * (pos.chamber.w - 40);
+            this.y = pos.chamber.y + 40 + Math.random() * (pos.chamber.h - 60);
+            this.vx = (Math.random() - 0.5) * 2;
+            this.vy = (Math.random() - 0.5) * 2;
+            this.state = 'chamber'; // chamber, pipe1, condenser, pipe2, pump, out
+        }
+    }
+}
+
+function initSystem() {
+    particles = [];
+    // Initial Air
+    for(let i=0; i<50; i++) particles.push(new Particle('air'));
+    // Brine particles
+    for(let i=0; i<15; i++) particles.push(new Particle('brine_cold'));
+    for(let i=0; i<15; i++) particles.push(new Particle('brine_hot'));
+}
+
+// --- Drawing Functions ---
+
+function drawRoundedRect(x, y, w, h, r, color, label) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    
+    if(label) {
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, x + w/2, y + h/2);
+    }
+}
+
+function drawPipe(x1, y1, x2, y2, w) {
+    ctx.strokeStyle = '#b2bec3';
+    ctx.lineWidth = w;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    // Inner shadow line
+    ctx.strokeStyle = '#dfe6e9';
+    ctx.lineWidth = w/3;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+}
+
+// The Complex Screw Pump Drawing
+function drawScrewPump() {
+    const p = pos.pump;
+    
+    // Pump Body
+    ctx.fillStyle = '#2d3436';
+    ctx.beginPath();
+    ctx.roundRect(p.x, p.y, p.w, p.h, 8);
+    ctx.fill();
+    
+    // Inlet (Right Top)
+    ctx.fillStyle = '#b2bec3';
+    ctx.beginPath();
+    ctx.rect(p.x + p.w - 40, p.y - 10, 30, 10); 
+    ctx.fill();
+
+    // Outlet (Left)
+    ctx.beginPath();
+    ctx.rect(p.x - 10, p.y + p.h/2 - 15, 10, 30);
+    ctx.fill();
+
+    // Screws visualization (Window)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(p.x + 10, p.y + 10, p.w - 20, p.h - 20);
+    ctx.clip();
+    
+    // Background for screws
+    ctx.fillStyle = '#111';
+    ctx.fill();
+
+    // Draw Screws: Right(Large) -> Left(Small)
+    // Animation offset
+    const t = simState.time * 0.3;
+    
+    ctx.strokeStyle = '#00cec9'; // Cyan color for screw edges
+    ctx.lineWidth = 2;
+    
+    const screwCenterY = p.y + p.h/2;
+    const screwH = (p.h - 30)/2;
+    
+    // Draw lines to represent the screw thread
+    // X goes from Left (Low pitch) to Right (High pitch)
+    // But flow is Right to Left.
+    // So Right side = Wide gaps. Left side = Narrow gaps.
+    
+    for (let i = 0; i < 30; i++) {
+        // Determine X position based on non-linear function
+        // Let u be 0 to 1
+        // x = u * width
+        // We want phase to increase rapidly at left, slowly at right?
+        // No, Pitch = d(x)/d(turn).
+        // Right side: Large Pitch. Left side: Small Pitch.
+        
+        // Let's just draw lines at calculated positions
+        // Base phase + offset
+        let phase = i + t / (Math.PI*2);
+        
+        // Map phase to X position non-linearly
+        // Right side (High X) should have large gaps.
+        // Formula: x = A * phase^power
+        // If power > 1, gaps get larger as phase increases
+        
+        let x_rel = Math.pow(phase, 1.8) * 6; 
+        // Shift so it scrolls: x_rel must be wrapped or infinite logic?
+        
+        // Better visual approach:
+        // Iterate pixels X from Right to Left.
+        // Calculate Sine wave where Frequency increases as X decreases.
+        
+    }
+    
+    // Direct approach: Draw sine waves with variable frequency
+    // X: p.x+10 to p.x+p.w-10
+    // Flow: Right -> Left
+    // Pitch: Right (Large) -> Left (Small)
+    
+    ctx.beginPath();
+    for (let px = p.w - 20; px >= 0; px -= 2) {
+        const xGlobal = p.x + 10 + px;
+        
+        // Normalized pos (0 at left, 1 at right)
+        const u = px / (p.w - 20); 
+        
+        // Frequency function: Low at Right (u=1), High at Left (u=0)
+        // Freq ~ 1 / Pitch. 
+        // Pitch ~ u (linear increase from left to right).
+        // Phase = Integral(Freq dx).
+        // Roughly: Phase grows faster at left.
+        
+        // Math approximation for visual:
+        // Phase = (Distance from Right) * (Base + Growth)
+        const distRight = (p.w - 20) - px;
+        const phase = distRight * 0.05 + (distRight * distRight * 0.0005);
+        
+        const yOffset = Math.sin(phase - simState.time * 0.5) * screwH;
+        
+        if (px === p.w - 20) ctx.moveTo(xGlobal, screwCenterY + yOffset);
+        else ctx.lineTo(xGlobal, screwCenterY + yOffset);
+    }
+    ctx.stroke();
+    
+    // Screw Axis Line
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(p.x + 10, screwCenterY);
+    ctx.lineTo(p.x + p.w - 10, screwCenterY);
+    ctx.stroke();
+    
+    ctx.restore();
+
+    // Labels
+    ctx.fillStyle = '#aaa';
+    ctx.font = '10px sans-serif';
+    ctx.fillText("排氣(壓縮)", p.x + 30, p.y + p.h + 12);
+    ctx.fillText("進氣(大螺距)", p.x + p.w - 30, p.y + p.h + 12);
+}
+
+// --- Simulation Loop ---
+
+function updatePhysics() {
+    if (!simState.running) return;
+    simState.time++;
+
+    // 1. Logic Flow: Pressure Drop & Temp Drop
+    if (simState.pressure > 50) {
+        // Fast drop initially (removing air)
+        simState.pressure -= 2;
+        simState.stage = 'PUMP_DOWN';
+        document.getElementById('statusText').innerHTML = "階段：抽氣降壓中...<br>真空泵正在移除腔體內的空氣。";
+    } else if (simState.pressure > 6) {
+        // Slower drop
+        simState.pressure -= 0.2;
+    } else {
+        // Target reached
+        simState.pressure = 4.6; // ~0C saturation
+        simState.stage = 'FLASH';
+    }
+
+    // Temperature follows pressure (physics approximation)
+    if (simState.pressure < 30 && simState.temp > 4) {
+        simState.temp -= 0.1;
+        document.getElementById('statusText').innerHTML = "階段：閃發預冷 (Flash)<br>水分劇烈沸騰蒸發帶走熱量。<br><span class='highlight'>水汽正在被凝結器大量捕捉！</span>";
+    }
+    if (simState.temp <= 4) {
+        simState.temp = 4;
+        simState.stage = 'DONE';
+        document.getElementById('statusText').innerText = "預冷完成！";
+    }
+
+    // UI Update
+    document.getElementById('pressureDisplay').innerText = simState.pressure.toFixed(1);
+    document.getElementById('tempDisplay').innerText = simState.temp.toFixed(1);
+
+    // 2. Spawn Particles
+    // If flashing, spawn Vapor
+    if (simState.stage === 'FLASH' || (simState.pressure < 40 && simState.temp > 4)) {
+        if (Math.random() < 0.3) {
+            particles.push(new Particle('vapor'));
+        }
+    }
+    // Always spawn some leakage air
+    if (Math.random() < 0.05) {
+        particles.push(new Particle('air'));
+    }
+
+    // 3. Move Particles
+    particles.forEach(p => {
+        if (!p.active) return;
+
+        const speed = 3;
+
+        if (p.type.includes('brine')) {
+            // Brine Logic
+            p.path += 0.01;
+            if(p.path > 1) p.path = 0;
+            // Visual interpolation for brine pipes (Chiller <-> Condenser)
+            // Supply (Cold): Chiller(Right) -> Condenser(Right Top)
+            // Return (Hot): Condenser(Right Bottom) -> Chiller(Right)
+            // Simplify coords for visual cleaness
+            let startX, startY, endX, endY;
+            if (p.type === 'brine_cold') {
+                startX = pos.chiller.x + 80; startY = pos.chiller.y + pos.chiller.h;
+                endX = pos.condenser.x + 80; endY = pos.condenser.y;
+                p.x = startX + (endX - startX) * p.path;
+                p.y = startY + (endY - startY) * p.path;
+            } else {
+                startX = pos.condenser.x + 40; startY = pos.condenser.y; // Actually comes out somewhat
+                // Let's simplify: Return from Condenser bottom to Chiller
+                startX = pos.condenser.x + 40; startY = pos.condenser.y; 
+                // Wait, Loop needs to make sense. 
+                // Let's just oscillate inside the pipes drawn later
+            }
+            return;
+        }
+
+        // Gas Logic
+        // Path: Chamber -> Pipe -> Condenser -> Pipe -> Pump Inlet (Right) -> Pump -> Exhaust
+        
+        // Target Points
+        const pipe1Exit = { x: pos.condenser.x, y: pos.condenser.y + 50 };
+        const condExit = { x: pos.condenser.x + pos.condenser.w, y: pos.condenser.y + 150 }; // Exit near bottom right
+        const pumpInlet = { x: pos.pump.x + pos.pump.w - 20, y: pos.pump.y }; // Enter from top right
+        
+        if (p.state === 'chamber') {
+            // Float up inside chamber
+            p.y += (Math.random()-0.5);
+            p.x += (Math.random()-0.5);
+            // Move towards outlet (Right Top of chamber)
+            const outletX = pos.chamber.x + pos.chamber.w;
+            const outletY = pos.chamber.y + 40;
+            
+            const dx = outletX - p.x;
+            const dy = outletY - p.y;
+            p.x += dx * 0.05;
+            p.y += dy * 0.05;
+            
+            if (Math.abs(dx) < 10 && Math.abs(dy) < 10) p.state = 'pipe1';
+        }
+        else if (p.state === 'pipe1') {
+            // Move to Condenser
+            const targetX = pos.condenser.x + 20;
+            const targetY = pos.condenser.y + 40;
+            const dx = targetX - p.x;
+            const dy = targetY - p.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            p.x += (dx/dist) * speed;
+            p.y += (dy/dist) * speed;
+            if (dist < 5) p.state = 'condenser';
+        }
+        else if (p.state === 'condenser') {
+            // Inside Condenser (The Trap)
+            p.x += 1; // Drift right
+            p.y += (Math.random() - 0.3); // Drift up/down
+            
+            // *** PHYSICS CRITICAL PART ***
+            if (p.type === 'vapor') {
+                // High chance to hit coils and disappear (condense)
+                if (Math.random() < 0.08) { 
+                    p.active = false; // Condensed!
+                    // Maybe leave a visual droplet? (omitted for performance)
+                }
+            }
+            
+            // If made it through (mostly air)
+            if (p.x > pos.condenser.x + pos.condenser.w - 20) {
+                p.state = 'pipe2';
+            }
+        }
+        else if (p.state === 'pipe2') {
+            // Go to Pump Inlet (Right side)
+            // Path: Out of condenser -> Right -> Down to Pump
+            const targetX = pos.pump.x + pos.pump.w - 30;
+            const targetY = pos.pump.y + 10;
+            
+            const dx = targetX - p.x;
+            const dy = targetY - p.y;
+            
+            // Simple Manhattan-ish movement
+            if (p.x < targetX) p.x += speed;
+            else if (p.y < targetY) p.y += speed;
+            
+            if (Math.abs(p.x - targetX) < 5 && Math.abs(p.y - targetY) < 5) {
+                p.state = 'pump';
+            }
+        }
+        else if (p.state === 'pump') {
+            // Inside Screw Pump: Move Right to Left
+            p.x -= speed;
+            // Compress towards center Y
+            const centerY = pos.pump.y + pos.pump.h / 2;
+            p.y = centerY + (p.y - centerY) * 0.9;
+            
+            if (p.x < pos.pump.x) {
+                p.state = 'out';
+            }
+        }
+        else if (p.state === 'out') {
+            p.x -= speed;
+            p.alpha -= 0.1;
+            if (p.alpha <= 0) p.active = false;
+        }
+    });
+    
+    // Cleanup
+    particles = particles.filter(p => p.active);
+}
+
+function draw() {
+    ctx.clearRect(0, 0, dims.w, dims.h);
+
+    // 1. Draw Connections (Pipes)
+    // Chamber -> Condenser
+    drawPipe(pos.chamber.x + pos.chamber.w, pos.chamber.y + 40, 
+             pos.condenser.x, pos.condenser.y + 40, 12);
+    
+    // Condenser -> Pump (Top right inlet)
+    ctx.strokeStyle = '#b2bec3'; ctx.lineWidth = 12; ctx.beginPath();
+    ctx.moveTo(pos.condenser.x + pos.condenser.w, pos.condenser.y + 40);
+    ctx.lineTo(pos.pump.x + pos.pump.w - 30, pos.condenser.y + 40); // Horizontal
+    ctx.lineTo(pos.pump.x + pos.pump.w - 30, pos.pump.y); // Vertical down
+    ctx.stroke();
+    
+    // Brine Pipes
+    ctx.lineWidth = 8;
+    // Supply (Blue)
+    ctx.strokeStyle = '#74b9ff';
+    ctx.beginPath();
+    ctx.moveTo(pos.chiller.x + 20, pos.chiller.y + pos.chiller.h);
+    ctx.lineTo(pos.chiller.x + 20, pos.condenser.y);
+    ctx.stroke();
+    // Return (Reddish)
+    ctx.strokeStyle = '#ff7675';
+    ctx.beginPath();
+    ctx.moveTo(pos.condenser.x + 80, pos.condenser.y);
+    ctx.lineTo(pos.chiller.x + 80, pos.chiller.y + pos.chiller.h);
+    ctx.stroke();
+
+    // 2. Draw Components
+    // Chamber
+    drawRoundedRect(pos.chamber.x, pos.chamber.y, pos.chamber.w, pos.chamber.h, 5, '#dfe6e9', "真空腔");
+    // Veggies
+    ctx.fillStyle = '#00b894';
+    ctx.beginPath();
+    ctx.arc(pos.chamber.x + pos.chamber.w/2, pos.chamber.y + pos.chamber.h - 50, 40, 0, Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font='12px sans-serif'; ctx.fillText("蔬菜", pos.chamber.x + pos.chamber.w/2, pos.chamber.y + pos.chamber.h - 45);
+
+    // Chiller
+    drawRoundedRect(pos.chiller.x, pos.chiller.y, pos.chiller.w, pos.chiller.h, 4, '#0984e3', "滷水機組");
+
+    // Condenser
+    drawRoundedRect(pos.condenser.x, pos.condenser.y, pos.condenser.w, pos.condenser.h, 4, '#2d3436', "凝結器");
+    // Coils inside condenser
+    ctx.strokeStyle = '#00cec9'; ctx.lineWidth = 4;
+    ctx.beginPath();
+    for(let y=pos.condenser.y+30; y<pos.condenser.y+pos.condenser.h-20; y+=20) {
+        ctx.moveTo(pos.condenser.x + 10, y);
+        ctx.lineTo(pos.condenser.x + pos.condenser.w - 10, y);
+    }
+    ctx.stroke();
+
+    // Pump
+    drawScrewPump();
+
+    // 3. Draw Particles
+    particles.forEach(p => {
+        // Determine color
+        if(p.type === 'air') ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        else if(p.type === 'vapor') ctx.fillStyle = '#00d2ff';
+        else if(p.type === 'brine_cold') ctx.fillStyle = '#74b9ff';
+        else if(p.type === 'brine_hot') ctx.fillStyle = '#ff7675';
+        
+        // Brine particles are drawn differently (in pipes)
+        if(p.type.includes('brine')) {
+            // Simplified for visual
+            let bx = pos.chiller.x + 20; 
+            let by = pos.chiller.y + pos.chiller.h + 10 + p.path * 100; // rough
+            if(p.type === 'brine_hot') bx += 60;
+            
+            ctx.beginPath(); ctx.arc(bx, by, 4, 0, Math.PI*2); ctx.fill();
+        } else {
+            // Gas particles
+            ctx.globalAlpha = p.alpha;
+            ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI*2); ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+    });
+
+    requestAnimationFrame(draw);
+}
+
+// Start Loop
+initSystem();
+setInterval(updatePhysics, 1000/60);
+requestAnimationFrame(draw);
+
+
+// --- Interaction & Logic ---
+
+function startSimulation() {
+    simState.running = true;
+    document.getElementById('statusText').innerText = "系統啟動中...";
+}
+
+function resetSimulation() {
+    simState.running = false;
+    simState.pressure = 760;
+    simState.temp = 30;
+    simState.stage = 'IDLE';
+    simState.time = 0;
+    particles = [];
+    initSystem();
+    document.getElementById('pressureDisplay').innerText = "760";
+    document.getElementById('tempDisplay').innerText = "30.0";
+    document.getElementById('statusText').innerText = "系統待機中...";
+}
+
+// Mouse Interaction for Tooltip
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (dims.w / rect.width);
+    const y = (e.clientY - rect.top) * (dims.h / rect.height);
+    
+    let text = "";
+    
+    if (x >= pos.pump.x && x <= pos.pump.x + pos.pump.w && y >= pos.pump.y && y <= pos.pump.y + pos.pump.h) {
+        text = "<strong>乾式螺旋真空泵</strong><br>進氣端(右)：大螺距，吸入氣體。<br>排氣端(左)：小螺距，壓縮氣體。<br>負責維持系統高真空。";
+    }
+    else if (x >= pos.condenser.x && x <= pos.condenser.x + pos.condenser.w && y >= pos.condenser.y && y <= pos.condenser.y + pos.condenser.h) {
+        text = "<strong>滷水式水汽凝結器</strong><br>內部佈滿低溫盤管。<br>功能：攔截水汽結冰，防止其進入真空泵。<br>效率關鍵：水汽體積是水的千倍，必須在此去除。";
+    }
+    else if (x >= pos.chamber.x && x <= pos.chamber.x + pos.chamber.w && y >= pos.chamber.y) {
+        text = "<strong>真空預冷槽</strong><br>蔬菜置於此。<br>壓力降低 -> 沸點降低 -> 水分蒸發 -> 帶走潛熱。";
+    }
+
+    if(text) {
+        tooltip.innerHTML = text;
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX - rect.left + 20) + 'px';
+        tooltip.style.top = (e.clientY - rect.top) + 'px';
+    } else {
+        tooltip.style.display = 'none';
+    }
+});
+
+function calculate() {
+    const w = parseFloat(document.getElementById('inWeight').value);
+    const t1 = parseFloat(document.getElementById('inStartT').value);
+    const t2 = parseFloat(document.getElementById('inEndT').value);
+    
+    if(isNaN(w) || isNaN(t1) || isNaN(t2)) return;
+    
+    const dt = t1 - t2;
+    const heat = w * 0.95 * dt; // kcal
+    const water = heat / 580; // kg
+    const loss = (water / w) * 100;
+    
+    document.getElementById('outHeat').innerText = Math.round(heat).toLocaleString();
+    document.getElementById('outWater').innerText = water.toFixed(2);
+    document.getElementById('outLoss').innerText = loss.toFixed(2);
+}
+</script>
+
+</body>
+</html>
